@@ -37,9 +37,24 @@ class WebSearchResults(BaseModel):
     results: List[SearchResult]
     search_duration: float  # in seconds
 
+class SourceReference(BaseModel):
+    id: int
+    title: str
+    url: str
+
+class SynthesizedResponse(BaseModel):
+    query: str
+    response: str  # The main synthesized content
+    sources_used: List[SourceReference]
+    total_sources: int
+    word_count: int
+    citation_count: int
+    synthesis_quality_score: float
+
 class SearchResponse(BaseModel):
     original_query: str
-    analysis: QueryAnalysis
+    analysis: Optional[QueryAnalysis] = None
     web_results: Optional[WebSearchResults] = None
+    synthesized_response: Optional[SynthesizedResponse] = None
     status: str = "analyzed"
     timestamp: str

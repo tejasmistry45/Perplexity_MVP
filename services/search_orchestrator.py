@@ -4,6 +4,7 @@ from typing import Dict, Any
 from models.schemas import SearchRequest, SearchResponse, SearchResult, WebSearchResults
 from services.query_analyzer import QueryAnalyzer
 from services.tavily_service import TavilyService
+from services.content_synthesizer import ContentSynthesizer
 from datetime import datetime
 import logging
 
@@ -15,12 +16,14 @@ class SearchOrchestrator:
     def __init__(self):
         self.query_analyzer = QueryAnalyzer()
         self.tavily_service = TavilyService()
+        self.content_synthesizer = ContentSynthesizer()
 
     async def execute_search(self, request: SearchRequest) -> SearchResponse:
-        """Execute complete search pipeline: Analysis + Web Search"""
+        """Execute complete search pipeline: Analysis + Web Search + Synthesis"""
 
         start_time = time.time()
         analysis = None
+        web_results = None
 
         try:
             # Step 1: Analyze Query
@@ -31,14 +34,23 @@ class SearchOrchestrator:
             logger.info(f"Step 2: Executing Web Searches")
             web_results = await self._execute_web_search(analysis, request.query)
 
-            search_duration = time.time() - start_time
-            logger.info(f"⚡ Total search completed in {search_duration:.2f}s")
+            # Step 3: Synthesize Response
+            logger.info(f"Step: Synthesizeing Response")
+            synthesized_response = await self.content_synthesizer.synthesize_response(
+                query=request.query,
+                analysis=analysis,
+                web_results=web_results
+            )
+
+            total_duration = time.time() - start_time
+            logger.info(f"⚡ Total search completed in {total_duration:.2f}s")
 
             # Create comprehensive response
             response = SearchResponse(
                 original_query=request.query,
                 analysis=analysis,
                 web_results=web_results,
+                synthesized_response=synthesized_response,
                 status="search_completed",
                 timestamp=datetime.now().isoformat()
             )
@@ -46,12 +58,14 @@ class SearchOrchestrator:
             return response
 
         except Exception as e:
-            logger.error(f"❌ Search orchestration failed: {e}")
-            # Return partial response with just analysis
+            logger.error(f"❌ Search Pipeline failed: {e}")
+            
+            # Return partial response
             return SearchResponse(
                 original_query=request.query,
                 analysis=analysis,
-                web_results=None,
+                web_results=web_results,
+                synthesized_response=None,
                 status="partial_failure",
                 timestamp=datetime.now().isoformat()
             )
