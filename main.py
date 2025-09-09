@@ -8,6 +8,7 @@ import logging
 from models.schemas import SearchRequest, SearchResponse
 from services.query_analyzer import QueryAnalyzer
 from services.search_orchestrator import SearchOrchestrator
+from services.tavily_service import TavilyService
 from config.settings import settings
 from logger_config import setup_logger
 
@@ -53,30 +54,6 @@ async def root():
        "timestamp": datetime.now().isoformat()
    }
 
-@app.post("/search", response_model=SearchResponse)
-async def search_endpoint(request: SearchRequest):
-    """Main search endpoint - Step 1: Query Analysis"""
-
-    try:
-        logger.info(f"Recived Query: {request.query}")
-
-        # 1. Analyze the query
-        analysis = await query_analyzer.process_query(request)
-        logger.info(f"Query Analysis Complete: {analysis}")
-
-        # Create Response
-        response = SearchResponse(
-            original_query=request.query,
-            analysis=analysis,
-            timestamp=datetime.now().isoformat()
-        )
-
-        return response
-
-    except Exception as e:
-        logger.error(f"Error Processing Query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
@@ -84,10 +61,48 @@ async def health_check():
         "status": "healthy",
         "services": {
             "groq": "connected",  # Add actual health checks later
-            "tavily": "pending"   # Will add in next step
+            "tavily": "connected"
         },
         "timestamp": datetime.now().isoformat()
     }
+
+# Add a test endpoint to verify Tavily connection
+@app.get("/test-tavily")
+async def test_tavily_endpoint():
+    """Test Tavily API connection"""
+    try:
+        tavily = TavilyService()
+        results = await tavily.search_multiple(["test query"], max_results_per_search=1)
+        return {
+            "status": "success",
+            "results_count": len(results),
+            "message": "Tavily API is working!"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Tavily API error: {str(e)}"
+        }
+
+@app.post("/search", response_model=SearchResponse)
+async def search_endpoint(request: SearchRequest):
+    """Complete search endpoint - Steps 1 & 2: Query Analysis + Web Search"""
+
+    try:
+        logger.info(f"Starting complete search for: {request.query}")
+
+        # Execute complete search pipeline
+        response = await search_orchestrator.execute_search(request)
+
+        # Log Summary
+        if response.web_results:
+            logger.info(f"Completed search for: {response.web_results.total_results}")
+
+        return response
+
+    except Exception as e:
+        logger.error(f"❌ Search endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -20,6 +20,7 @@ class SearchOrchestrator:
         """Execute complete search pipeline: Analysis + Web Search"""
 
         start_time = time.time()
+        analysis = None
 
         try:
             # Step 1: Analyze Query
@@ -49,7 +50,8 @@ class SearchOrchestrator:
             # Return partial response with just analysis
             return SearchResponse(
                 original_query=request.query,
-                analysis=analysis if 'analysis' in locals() else None,
+                analysis=analysis,
+                web_results=None,
                 status="partial_failure",
                 timestamp=datetime.now().isoformat()
             )
@@ -80,17 +82,21 @@ class SearchOrchestrator:
         )
 
         # Convert to our schema
-        search_results = [
-            SearchResult(
-                title=result.get('title', 'No title'),
-                url=result.get('url', ''),
-                content=result.get('content', ''),
-                score=result.get('score', 0.0),
-                calculated_score=result.get('calculated_score'),
-                published_date=result.get('published_date')
-            )
-            for result in raw_results
-        ]
+        search_results = []
+        for result in raw_results:
+            try:
+                search_result = SearchResult(
+                    title=result.get('title', 'No title'),
+                    url=result.get('url', ''),
+                    content=result.get('content', ''),
+                    score=result.get('score', 0.0),
+                    calculated_score=result.get('calculated_score'),
+                    published_date=result.get('published_date')
+                )
+                search_results.append(search_result)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to parse search result: {e}")
+                continue
 
         search_duration = time.time() - search_start
 

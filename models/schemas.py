@@ -16,7 +16,7 @@ class SearchRequest(BaseModel):
     session_id: Optional[str] = None
 
 class QueryAnalysis(BaseModel):
-    query_type: QueryType
+    query_type: str
     search_intent: str
     key_entities: List[str]
     suggested_searches: List[str]
@@ -25,7 +25,7 @@ class QueryAnalysis(BaseModel):
 
 class SearchResult(BaseModel):
     title: str
-    url: HttpUrl
+    url: str
     content: str
     score: float
     calculated_score: Optional[float] = None

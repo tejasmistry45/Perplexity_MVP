@@ -38,7 +38,7 @@ class TavilyService:
 
         # Remove Duplicate And Result
         deduplicated_results = self._deduplicated_results(all_results)
-        ranked_results = self._rank_resluts(deduplicated_results)
+        ranked_results = self._rank_results(deduplicated_results)
 
         logger.info(f"Found {len(ranked_results)} Unique results")
         return ranked_results
@@ -49,7 +49,7 @@ class TavilyService:
         payload = {
             "api_key": self.api_key,
             "query": query,
-            "search_depth": "advanced",     # or "basic" for faster results
+            "search_depth": "basic",     # or "basic" for faster results
             "include_answers": False,       # We'll generate our own answer
             "include_raw_content": True,    # Get full content
             "max_results": max_results,
