@@ -107,62 +107,92 @@ class ContentSynthesizer:
         return content.strip()
     
     def _create_synthesis_prompt(
-        self, 
-        query: str, 
-        analysis: QueryAnalysis, 
-        sources: List[Dict[str, Any]]
-    ) -> str:
-        """Create comprehensive prompt for content synthesis"""
+    self, 
+    query: str, 
+    analysis: QueryAnalysis, 
+    sources: List[Dict[str, Any]]
+) -> str:
+        """Create flexible synthesis prompt that adapts to query type"""
         
-        # Build sources context
-        sources_text = ""
-        for source in sources:
-            sources_text += f"""
-                                Source [{source['id']}]: {source['title']}
-                                URL: {source['url']}
-                                Content: {source['content']}
-
-                                ---
-                                """
+        # Build clean sources context
+        sources_context = ""
+        for i, source in enumerate(sources, 1):
+            clean_content = source['content'].replace('\n', ' ').strip()
+            # Limit content length to avoid token overflow
+            if len(clean_content) > 800:
+                clean_content = clean_content[:800] + "..."
             
-            prompt = f"""
-                    You are an expert research assistant. Your task is to synthesize information from multiple sources to answer the user's query comprehensively and accurately.
+            sources_context += f"\n[{i}] {source['title']}\n{clean_content}\n"
 
-                    **User Query**: "{query}"
+        # Determine response style based on query type
+        if analysis.query_type in ["factual", "current_events"]:
+            style_instruction = """
+    Write a clear, direct answer that:
+    1. Starts with the main answer in the first sentence
+    2. Provides key details and context
+    3. Includes relevant background information
+    4. Uses natural paragraph structure
+    5. Cites sources with [1], [2] format after relevant facts
+    """
+        elif analysis.query_type == "comparison":
+            style_instruction = """
+    Write a balanced comparison that:
+    1. Briefly states the key differences upfront
+    2. Compares main aspects side by side
+    3. Provides context and background
+    4. Uses clear paragraph structure
+    5. Cites sources with [1], [2] format
+    """
+        elif analysis.query_type == "how_to":
+            style_instruction = """
+    Write a helpful guide that:
+    1. Briefly explains what the process involves
+    2. Lists key steps or methods
+    3. Provides important details and tips
+    4. Uses clear paragraph and bullet structure
+    5. Cites sources with [1], [2] format
+    """
+        else:
+            style_instruction = """
+    Write a comprehensive answer that:
+    1. Addresses the question directly
+    2. Provides relevant details and context
+    3. Uses natural paragraph structure
+    4. Cites sources with [1], [2] format after key facts
+    """
 
-                    **Query Analysis**:
-                    - Type: {analysis.query_type}
-                    - Intent: {analysis.search_intent}
-                    - Complexity: {analysis.complexity_score}/10
+        prompt = f"""You are an expert research assistant creating a comprehensive answer.
 
-                    **Available Sources**:
-                    {sources_text}
+    **Query**: "{query}"
+    **Query Type**: {analysis.query_type}
+    **Intent**: {analysis.search_intent}
 
-                    **Instructions**:
-                    1. **Synthesize** information from the sources to create a comprehensive answer
-                    2. **Use proper citations** - Reference sources as [1], [2], etc. throughout your response
-                    3. **Be accurate** - Only use information that's clearly supported by the sources
-                    4. **Structure well** - Use headers, bullet points, and clear organization
-                    5. **Be comprehensive** - Cover all relevant aspects of the query
-                    6. **Maintain objectivity** - Present balanced information when there are different viewpoints
+    **Sources**:{sources_context}
 
-                    **Response Format**:
-                    - Start with a clear, direct answer to the main question
-                    - Provide detailed explanation with proper citations
-                    - Use markdown formatting for better readability
-                    - Include relevant examples, comparisons, or additional context
-                    - End with a brief summary if the response is long
+    **Instructions**:
+    {style_instruction}
 
-                    **Citation Rules**:
-                    - Cite sources immediately after relevant statements: "Quantum computers use qubits[1][3]"
-                    - Use multiple citations when information comes from multiple sources
-                    - Never make claims without citing sources
-                    - Ensure every major fact or claim has proper citation
+    **Citation Rules**:
+    - Use [1], [2], [3] etc. immediately after facts from sources
+    - Every major claim needs a citation
+    - Multiple sources can be cited like [1][2]
+    - Don't over-cite obvious facts
 
-                    Generate a comprehensive, well-cited response:
-                    """
-        
+    **Response Style**:
+    - Write naturally like Perplexity - conversational but informative
+    - Use clear paragraphs, not rigid templates
+    - Include relevant details that answer the user's intent
+    - Keep it comprehensive but readable
+    - Use **bold** for emphasis on key names/terms
+    - Use bullet points only when listing multiple items
+
+    Generate a well-structured response now:"""
+
         return prompt
+
+
+
+
     
     async def _generate_with_groq(self, prompt: str) -> str:
         """Generate response using Groq LLM"""
