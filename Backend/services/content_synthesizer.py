@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from groq import AsyncGroq
 from models.schemas import WebSearchResults, SearchResult, QueryAnalysis, SynthesizedResponse
 from config.settings import settings
+from services.citation_processor import SmartCitationProcessor
 import logging
 import re
 
@@ -15,6 +16,8 @@ class ContentSynthesizer:
         self.client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         self.model = "openai/gpt-oss-120b"
         self.max_content_length = 4000   # Limit content per source
+        # Initialize citation processor
+        self.citation_processor = SmartCitationProcessor()
 
     async def synthesize_response(self, 
                                   query: str, 
@@ -224,13 +227,24 @@ class ContentSynthesizer:
         sources: List[Dict[str, Any]], 
         query: str
     ) -> SynthesizedResponse:
-        """Process and validate synthesized response"""
+        """Process response with intelligent citation placement"""
         
-        # Extract citations from content
+        # Clean content of any existing bad citations
+        clean_content = re.sub(r'【\d+†source】', '', content)
+        clean_content = re.sub(r'\[\d+†source\]', '', clean_content)
+        
+        # Apply intelligent citation placement
+        try:
+            cited_content = self.citation_processor.process_citations(clean_content, sources)
+        except Exception as e:
+            logger.error(f"Citation processing failed: {e}")
+            cited_content = clean_content  # Fallback to content without citations
+        
+        # Extract final citations used
         citation_pattern = r'\[(\d+)\]'
-        citations_used = set(re.findall(citation_pattern, content))
+        citations_used = set(re.findall(citation_pattern, cited_content))
         
-        # Create source mapping for citations
+        # Create source mapping
         cited_sources = []
         for source in sources:
             if str(source['id']) in citations_used:
@@ -240,19 +254,15 @@ class ContentSynthesizer:
                     "url": source['url']
                 })
         
-        # Calculate response metrics
-        word_count = len(content.split())
-        citation_count = len(citations_used)
-        
         return SynthesizedResponse(
             query=query,
-            response=content,
+            response=cited_content,
             sources_used=cited_sources,
             total_sources=len(sources),
-            word_count=word_count,
-            citation_count=citation_count,
+            word_count=len(cited_content.split()),
+            citation_count=len(citations_used),
             synthesis_quality_score=self._calculate_quality_score(
-                content, citation_count, word_count
+                cited_content, len(citations_used), len(cited_content.split())
             )
         )
     

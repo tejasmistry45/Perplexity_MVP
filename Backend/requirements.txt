@@ -12,3 +12,12 @@ pydantic
 httpx
 groq
 pydantic-settings
+sentence-transformers
+scikit-learn
+spacy 
+numpy
+
+
+
+# download spacy module
+# python -m spacy download en_core_web_sm

@@ -149,11 +149,10 @@ const parseMarkdown = (content: string) => {
     const flushList = () => {
         if (listItems.length > 0) {
             parsed.push(
-                <ul key={`list-${parsed.length}`} className="list-none space-y-1.5 mb-3 ml-0">
+                <ul key={`list-${parsed.length}`} className="list-disc ml-6 space-y-2 mb-4">
                     {listItems.map((item, idx) => (
-                        <li key={idx} className="flex items-start">
-                            <span className="text-teal-500 mr-3 mt-0.5 flex-shrink-0 text-sm">•</span>
-                            <span className="text-gray-700 leading-relaxed text-sm">{formatInlineMarkdown(item)}</span>
+                        <li key={idx} className="text-gray-700 leading-relaxed">
+                            {formatInlineMarkdown(item)}
                         </li>
                     ))}
                 </ul>
@@ -200,16 +199,48 @@ const parseMarkdown = (content: string) => {
     };
 
     const formatInlineMarkdown = (text: string): JSX.Element => {
-        let parts = text.split(/(\*\*.*?\*\*)/g);
+        // Handle clickable citations: [1](url) -> clickable link
+        const citationRegex = /\[(\d+)\]\((https?:\/\/[^\s)]+)\)/g;
+        const parts = text.split(citationRegex);
+        
         return (
             <span>
                 {parts.map((part, idx) => {
-                    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-                        return <strong key={idx} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
+                    // Check if this part is a citation number
+                    if (idx % 3 === 1 && parts[idx + 1]) {
+                        const citationNumber = part;
+                        const citationUrl = parts[idx + 1];
+                        return (
+                            <a
+                                key={idx}
+                                href={citationUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center w-5 h-5 text-xs bg-blue-100 text-blue-700 rounded border border-blue-300 hover:bg-blue-200 transition-colors duration-150 ml-1 no-underline"
+                                title={`Source: ${citationUrl}`}
+                            >
+                                {citationNumber}
+                            </a>
+                        );
                     }
-                    if (part.startsWith('*') && part.endsWith('*') && part.length > 2 && !part.startsWith('**')) {
-                        return <em key={idx} className="italic">{part.slice(1, -1)}</em>;
+                    // Skip URL parts (they're handled above)
+                    if (idx % 3 === 2) return null;
+                    
+                    // Handle bold text
+                    if (part.includes('**')) {
+                        const boldParts = part.split(/(\*\*.*?\*\*)/g);
+                        return (
+                            <span key={idx}>
+                                {boldParts.map((boldPart, boldIdx) => {
+                                    if (boldPart.startsWith('**') && boldPart.endsWith('**') && boldPart.length > 4) {
+                                        return <strong key={boldIdx} className="font-semibold text-gray-900">{boldPart.slice(2, -2)}</strong>;
+                                    }
+                                    return boldPart;
+                                })}
+                            </span>
+                        );
                     }
+                    
                     return part;
                 })}
             </span>
@@ -240,14 +271,15 @@ const parseMarkdown = (content: string) => {
             flushTable();
         }
 
+        // Headers
         if (trimmed.startsWith('## ')) {
             flushList();
-            flushTable();
             parsed.push(
-                <h2 key={`h2-${index}`} className="text-lg font-semibold text-gray-800 mb-2 mt-4 first:mt-0 pb-1 border-b border-gray-200">
+                <h2 key={`h2-${index}`} className="text-xl font-semibold text-gray-800 mb-3 mt-6 first:mt-0 pb-2 border-b border-gray-200">
                     {formatInlineMarkdown(trimmed.slice(3))}
                 </h2>
             );
+        
         } else if (trimmed.startsWith('### ')) {
             flushList();
             flushTable();
@@ -265,17 +297,16 @@ const parseMarkdown = (content: string) => {
                 </h4>
             );
         }
-        else if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || /^\d+\.\s/.test(trimmed)) {
-            flushTable();
+        // Bullet points
+        else if (trimmed.startsWith('• ')) {
             inList = true;
-            const itemText = trimmed.replace(/^[•\-]\s/, '').replace(/^\d+\.\s/, '');
-            listItems.push(itemText);
+            listItems.push(trimmed.slice(2));
         }
-        else if (trimmed.length > 0) {
+        // Regular paragraphs
+        else {
             flushList();
-            flushTable();
             parsed.push(
-                <p key={`p-${index}`} className="text-gray-700 mb-2 leading-relaxed text-sm">
+                <p key={`p-${index}`} className="text-gray-700 mb-3 leading-relaxed">
                     {formatInlineMarkdown(trimmed)}
                 </p>
             );
