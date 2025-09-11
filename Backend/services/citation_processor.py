@@ -24,9 +24,14 @@ class SmartCitationProcessor:
             self.sentence_model = None
     
     def process_citations(self, content: str, sources: List[Dict[str, Any]]) -> str:
-        """Create clickable citations in markdown format"""
+        """Create ONLY clickable citations in markdown format"""
         if not sources:
             return content
+            
+        # Clean any existing citations first
+        content = re.sub(r'\[\d+\](?!\()', '', content)  # Remove [1] but keep [1](url)
+        content = re.sub(r'\[\d+\]\[\d+\]', '', content)  # Remove [1][2] patterns
+        content = re.sub(r'\s+', ' ', content)  # Clean extra spaces
             
         # Create source URL mapping
         source_urls = {str(source['id']): source['url'] for source in sources}
@@ -42,7 +47,7 @@ class SmartCitationProcessor:
             # Find relevant sources for this sentence
             relevant_source_ids = self._find_relevant_sources(sentence, sources)
             
-            # Add CLICKABLE citations if relevant sources found
+            # Add ONLY clickable citations
             if relevant_source_ids:
                 clickable_citations = []
                 for sid in relevant_source_ids[:2]:  # Max 2 citations
@@ -56,6 +61,7 @@ class SmartCitationProcessor:
             processed_sentences.append(sentence)
         
         return ' '.join(processed_sentences)
+
 
     def _find_relevant_sources(self, sentence: str, sources: List[Dict]) -> List[int]:
         """Find source IDs relevant to a sentence using multiple intelligence methods"""

@@ -131,192 +131,184 @@ const SearchStages = ({ searchInfo }: { searchInfo: any }) => {
 const parseMarkdown = (content: string) => {
     if (!content) return content;
 
-    // Clean up the content first
+    // Step 1: Clean up content and remove any remaining non-clickable citations
     let cleanContent = content
-        .replace(/^\|[-\s:]+\|$/gm, '')
-        .replace(/^[-\s]+$/gm, '')
-        .replace(/\n\s*\n\s*\n/g, '\n\n')
+        .replace(/^\|[-\s:]+\|$/gm, '') // Remove table separators
+        .replace(/^[-\s]+$/gm, '')      // Remove standalone dashes
+        .replace(/\n\s*\n\s*\n/g, '\n\n') // Normalize multiple newlines
+        // IMPORTANT: Remove any leftover non-clickable citations
+        .replace(/\[\d+\](?!\()/g, '')   // Remove [1] but keep [1](url)
+        .replace(/\[\d+\]\[\d+\]/g, '')  // Remove [1][2] patterns
+        .replace(/\[\d+\]\[\d+\]\[\d+\]/g, '') // Remove [1][2][3] patterns
+        // Clean up extra spaces
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([.!?])/g, '$1')    // Fix spaces before punctuation
         .trim();
 
-    const lines = cleanContent.split('\n');
+    // Step 2: Split into blocks for better structure
+    const blocks = cleanContent.split(/\n\n+/);
     const parsed: JSX.Element[] = [];
-    let listItems: string[] = [];
-    let inList = false;
-    let tableRows: string[][] = [];
-    let inTable = false;
-    let tableHeaders: string[] = [];
 
-    const flushList = () => {
-        if (listItems.length > 0) {
+    const formatInlineMarkdown = (text: string): JSX.Element => {
+        if (!text) return <span></span>;
+
+        // Step 1: Handle clickable citations first
+        const citationRegex = /\[(\d+)\]\((https?:\/\/[^\s)]+)\)/g;
+        let parts: (string | JSX.Element)[] = [];
+        let lastIndex = 0;
+        let match;
+
+        while ((match = citationRegex.exec(text)) !== null) {
+            // Add text before citation
+            if (match.index > lastIndex) {
+                parts.push(text.substring(lastIndex, match.index));
+            }
+            
+            // Add clickable citation
+            const citationNumber = match[1];
+            const citationUrl = match[2];
+            parts.push(
+                <a
+                    key={`citation-${match.index}`}
+                    href={citationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center w-6 h-6 text-xs bg-blue-100 text-blue-700 rounded border border-blue-300 hover:bg-blue-200 transition-colors duration-150 ml-1 no-underline font-medium"
+                    title={`Source: ${citationUrl}`}
+                >
+                    {citationNumber}
+                </a>
+            );
+            lastIndex = citationRegex.lastIndex;
+        }
+        
+        // Add remaining text
+        if (lastIndex < text.length) {
+            parts.push(text.substring(lastIndex));
+        }
+
+        // Step 2: Handle bold text in string parts
+        const processedParts: (string | JSX.Element)[] = [];
+        parts.forEach((part, partIndex) => {
+            if (typeof part === 'string') {
+                const boldRegex = /\*\*(.*?)\*\*/g;
+                const boldParts: (string | JSX.Element)[] = [];
+                let boldLastIndex = 0;
+                let boldMatch;
+
+                while ((boldMatch = boldRegex.exec(part)) !== null) {
+                    if (boldMatch.index > boldLastIndex) {
+                        boldParts.push(part.substring(boldLastIndex, boldMatch.index));
+                    }
+                    boldParts.push(
+                        <strong key={`bold-${partIndex}-${boldMatch.index}`} className="font-semibold text-gray-900">
+                            {boldMatch[1]}
+                        </strong>
+                    );
+                    boldLastIndex = boldRegex.lastIndex;
+                }
+                
+                if (boldLastIndex < part.length) {
+                    boldParts.push(part.substring(boldLastIndex));
+                }
+                
+                processedParts.push(...boldParts);
+            } else {
+                processedParts.push(part);
+            }
+        });
+
+        return <span>{processedParts}</span>;
+    };
+
+    blocks.forEach((block, index) => {
+        const trimmed = block.trim();
+        if (!trimmed) return;
+
+        // Headers
+        if (trimmed.startsWith('## ')) {
             parsed.push(
-                <ul key={`list-${parsed.length}`} className="list-disc ml-6 space-y-2 mb-4">
-                    {listItems.map((item, idx) => (
+                <h2 key={`h2-${index}`} className="text-xl font-bold text-gray-800 mb-4 mt-6 first:mt-0 pb-2 border-b border-gray-200">
+                    {formatInlineMarkdown(trimmed.slice(3))}
+                </h2>
+            );
+        } 
+        else if (trimmed.startsWith('### ')) {
+            parsed.push(
+                <h3 key={`h3-${index}`} className="text-lg font-semibold text-gray-800 mb-3 mt-5 first:mt-0">
+                    {formatInlineMarkdown(trimmed.slice(4))}
+                </h3>
+            );
+        }
+        else if (trimmed.startsWith('#### ')) {
+            parsed.push(
+                <h4 key={`h4-${index}`} className="text-base font-medium text-gray-800 mb-2 mt-4 first:mt-0">
+                    {formatInlineMarkdown(trimmed.slice(5))}
+                </h4>
+            );
+        }
+        // Bullet point lists
+        else if (trimmed.includes('\n• ') || trimmed.startsWith('• ')) {
+            const items = trimmed.split('\n').map(line => line.replace(/^• /, '')).filter(item => item.trim());
+            parsed.push(
+                <ul key={`list-${index}`} className="list-disc ml-6 space-y-2 mb-4">
+                    {items.map((item, idx) => (
                         <li key={idx} className="text-gray-700 leading-relaxed">
                             {formatInlineMarkdown(item)}
                         </li>
                     ))}
                 </ul>
             );
-            listItems = [];
         }
-        inList = false;
-    };
+        // Tables
+        else if (trimmed.includes('|') && trimmed.split('\n').length > 1) {
+            const lines = trimmed.split('\n');
+            const headers = lines[0].split('|').map(h => h.trim()).filter(Boolean);
+            const dataRows = lines.slice(1)
+                .filter(line => !line.match(/^[\|\-\s:]+$/))
+                .map(row => row.split('|').map(c => c.trim()).filter(Boolean));
 
-    const flushTable = () => {
-        if (tableRows.length > 0) {
-            parsed.push(
-                <div key={`table-${parsed.length}`} className="overflow-x-auto mb-4">
-                    <table className="min-w-full border border-gray-200 rounded-lg shadow-sm">
-                        {tableHeaders.length > 0 && (
+            if (headers.length > 0 && dataRows.length > 0) {
+                parsed.push(
+                    <div key={`table-${index}`} className="overflow-x-auto mb-6">
+                        <table className="min-w-full border border-gray-200 rounded-lg shadow-sm">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    {tableHeaders.map((header, idx) => (
-                                        <th key={idx} className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-200">
-                                            {formatInlineMarkdown(header.trim())}
+                                    {headers.map((header, idx) => (
+                                        <th key={idx} className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b border-gray-200">
+                                            {formatInlineMarkdown(header)}
                                         </th>
                                     ))}
                                 </tr>
                             </thead>
-                        )}
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {tableRows.map((row, rowIdx) => (
-                                <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    {row.map((cell, cellIdx) => (
-                                        <td key={cellIdx} className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
-                                            {formatInlineMarkdown(cell.trim())}
-                                        </td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            );
-            tableRows = [];
-            tableHeaders = [];
-        }
-        inTable = false;
-    };
-
-    const formatInlineMarkdown = (text: string): JSX.Element => {
-        // Handle clickable citations: [1](url) -> clickable link
-        const citationRegex = /\[(\d+)\]\((https?:\/\/[^\s)]+)\)/g;
-        const parts = text.split(citationRegex);
-        
-        return (
-            <span>
-                {parts.map((part, idx) => {
-                    // Check if this part is a citation number
-                    if (idx % 3 === 1 && parts[idx + 1]) {
-                        const citationNumber = part;
-                        const citationUrl = parts[idx + 1];
-                        return (
-                            <a
-                                key={idx}
-                                href={citationUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center w-5 h-5 text-xs bg-blue-100 text-blue-700 rounded border border-blue-300 hover:bg-blue-200 transition-colors duration-150 ml-1 no-underline"
-                                title={`Source: ${citationUrl}`}
-                            >
-                                {citationNumber}
-                            </a>
-                        );
-                    }
-                    // Skip URL parts (they're handled above)
-                    if (idx % 3 === 2) return null;
-                    
-                    // Handle bold text
-                    if (part.includes('**')) {
-                        const boldParts = part.split(/(\*\*.*?\*\*)/g);
-                        return (
-                            <span key={idx}>
-                                {boldParts.map((boldPart, boldIdx) => {
-                                    if (boldPart.startsWith('**') && boldPart.endsWith('**') && boldPart.length > 4) {
-                                        return <strong key={boldIdx} className="font-semibold text-gray-900">{boldPart.slice(2, -2)}</strong>;
-                                    }
-                                    return boldPart;
-                                })}
-                            </span>
-                        );
-                    }
-                    
-                    return part;
-                })}
-            </span>
-        );
-    };
-
-    lines.forEach((line, index) => {
-        const trimmed = line.trim();
-
-        if (!trimmed || /^[-\s|:]+$/.test(trimmed)) {
-            return;
-        }
-
-        if (trimmed.includes('|') && trimmed.split('|').length > 2) {
-            const cells = trimmed.split('|').map(cell => cell.trim()).filter(cell => cell.length > 0);
-
-            if (cells.length > 0) {
-                if (!inTable) {
-                    flushList();
-                    inTable = true;
-                    tableHeaders = cells;
-                } else {
-                    tableRows.push(cells);
-                }
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {dataRows.map((row, rowIdx) => (
+                                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                        {row.map((cell, cellIdx) => (
+                                            <td key={cellIdx} className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
+                                                {formatInlineMarkdown(cell)}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                );
                 return;
             }
-        } else {
-            flushTable();
-        }
-
-        // Headers
-        if (trimmed.startsWith('## ')) {
-            flushList();
-            parsed.push(
-                <h2 key={`h2-${index}`} className="text-xl font-semibold text-gray-800 mb-3 mt-6 first:mt-0 pb-2 border-b border-gray-200">
-                    {formatInlineMarkdown(trimmed.slice(3))}
-                </h2>
-            );
-        
-        } else if (trimmed.startsWith('### ')) {
-            flushList();
-            flushTable();
-            parsed.push(
-                <h3 key={`h3-${index}`} className="text-base font-medium text-gray-800 mb-2 mt-3 first:mt-0">
-                    {formatInlineMarkdown(trimmed.slice(4))}
-                </h3>
-            );
-        } else if (trimmed.startsWith('#### ')) {
-            flushList();
-            flushTable();
-            parsed.push(
-                <h4 key={`h4-${index}`} className="text-sm font-medium text-gray-800 mb-1 mt-2 first:mt-0">
-                    {formatInlineMarkdown(trimmed.slice(5))}
-                </h4>
-            );
-        }
-        // Bullet points
-        else if (trimmed.startsWith('• ')) {
-            inList = true;
-            listItems.push(trimmed.slice(2));
         }
         // Regular paragraphs
         else {
-            flushList();
             parsed.push(
-                <p key={`p-${index}`} className="text-gray-700 mb-3 leading-relaxed">
+                <p key={`p-${index}`} className="text-gray-700 mb-4 leading-relaxed">
                     {formatInlineMarkdown(trimmed)}
                 </p>
             );
         }
     });
 
-    flushList();
-    flushTable();
-
-    return <div className="space-y-1">{parsed}</div>;
+    return <div className="space-y-2">{parsed}</div>;
 };
 
 interface Message {

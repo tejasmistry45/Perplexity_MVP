@@ -222,27 +222,37 @@ class ContentSynthesizer:
             raise
     
     def _process_synthesized_response(
-        self, 
-        content: str, 
-        sources: List[Dict[str, Any]], 
-        query: str
-    ) -> SynthesizedResponse:
+    self, 
+    content: str, 
+    sources: List[Dict[str, Any]], 
+    query: str
+) -> SynthesizedResponse:
         """Process response with intelligent citation placement"""
         
-        # Clean content of any existing bad citations
+        # Step 1: Clean ALL existing citations first
         clean_content = re.sub(r'【\d+†source】', '', content)
         clean_content = re.sub(r'\[\d+†source\]', '', clean_content)
         
-        # Apply intelligent citation placement
+        # NEW: Remove all plain citation formats [1], [2], [1][2], etc.
+        clean_content = re.sub(r'\[\d+\](?!\()', '', clean_content)  # Remove [1] but not [1](url)
+        clean_content = re.sub(r'\[\d+\]\[\d+\]', '', clean_content)  # Remove [1][2] patterns
+        clean_content = re.sub(r'\[\d+\]\[\d+\]\[\d+\]', '', clean_content)  # Remove [1][2][3] patterns
+        clean_content = re.sub(r'\[\d+\]\[\d+\]\[\d+\]\[\d+\]', '', clean_content)  # Remove longer chains
+        
+        # Clean up extra spaces left by citation removal
+        clean_content = re.sub(r'\s+', ' ', clean_content)
+        clean_content = re.sub(r'\s+([.!?])', r'\1', clean_content)  # Fix spaces before punctuation
+        
+        # Apply intelligent citation placement (this will add clickable citations)
         try:
             cited_content = self.citation_processor.process_citations(clean_content, sources)
         except Exception as e:
             logger.error(f"Citation processing failed: {e}")
             cited_content = clean_content  # Fallback to content without citations
         
-        # Extract final citations used
-        citation_pattern = r'\[(\d+)\]'
-        citations_used = set(re.findall(citation_pattern, cited_content))
+        # Extract final citations used (only clickable ones)
+        citation_pattern = r'\[(\d+)\]\([^)]+\)'  # Only match [1](url) format
+        citations_used = set(re.findall(r'\[(\d+)\]\([^)]+\)', cited_content))
         
         # Create source mapping
         cited_sources = []
